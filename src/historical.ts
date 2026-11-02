@@ -17,6 +17,8 @@ export type HistoricalEvent = {
 export type RejectedRow = { source_row: number; reasons: string[]; source_fields: Record<string, string> };
 export type HistoricalDataset = {
   file_name: string;
+  source_format: 'CSV' | 'XES';
+  source_delivery?: 'uploaded' | 'reviewed_extract';
   events: HistoricalEvent[];
   rejected: RejectedRow[];
   out_of_order_rows: number[];
@@ -101,7 +103,7 @@ function sourceObject(headers: string[], values: string[]): Record<string, strin
 }
 
 export async function importIncidentCsv(file: File): Promise<HistoricalDataset> {
-  if (!file.name.toLowerCase().endsWith('.csv')) throw new Error('Choose the original incident CSV file. This importer does not accept XES, XLSX, or ZIP files.');
+  if (!file.name.toLowerCase().endsWith('.csv')) throw new Error('Choose a CSV, plain XES, or compressed XES (.xes.gz) incident log.');
   const text = await file.text();
   const delimiter = chooseDelimiter(text);
   const table = parseDelimited(text, delimiter);
@@ -153,9 +155,142 @@ export async function importIncidentCsv(file: File): Promise<HistoricalDataset> 
       source_row: sourceRow, source_fields,
     });
   }
-  if (!events.length) throw new Error(`No usable event rows. ${rejected.length} row(s) were rejected. Check the imported file's column mapping and timestamp values.`);
   events.sort((a, b) => a.case_id.localeCompare(b.case_id) || a.event_time - b.event_time || a.source_row - b.source_row);
-  return { file_name: file.name, events, rejected, out_of_order_rows: outOfOrder, duplicate_rows: duplicateRows, blank_rows: blankRows, row_count: nonblankRows, mapping };
+  return { file_name: file.name, source_format: 'CSV', source_delivery: 'uploaded', events, rejected, out_of_order_rows: outOfOrder, duplicate_rows: duplicateRows, blank_rows: blankRows, row_count: nonblankRows, mapping };
+}
+
+type XesAttribute = { key: string; type: string; value: string; raw: string };
+type ParsedAttributes = { values: Map<string, XesAttribute>; source: Record<string, string>; problems: string[] };
+const localName = (element: Element) => element.localName || element.tagName.split(':').pop() || element.tagName;
+const elements = (element: Element) => Array.from(element.children);
+
+function parseXesAttributes(parent: Element, scope: 'trace'|'event'): ParsedAttributes {
+  const values = new Map<string, XesAttribute>(), source: Record<string, string> = {}, problems: string[] = [];
+  let anonymous = 0;
+  for (const child of elements(parent)) {
+    const type = localName(child), key = child.getAttribute('key')?.trim();
+    if (!key) {
+      if (['string','date','int','float','boolean','id','list','container'].includes(type)) {
+        anonymous++;
+        problems.push(`XES ${scope} attribute is missing its key`);
+        source[`${scope}:__malformed_attribute_${anonymous}`] = child.outerHTML;
+      }
+      continue;
+    }
+    let value = child.getAttribute('value');
+    if (value === null) {
+      const nested = elements(child).filter(node => node.hasAttribute('key'));
+      value = nested.length ? JSON.stringify(nested.map(node => ({ key: node.getAttribute('key'), type: localName(node), value: node.getAttribute('value') ?? node.textContent ?? '' }))) : child.textContent ?? '';
+    }
+    const attribute = { key, type, value: value.trim(), raw: child.outerHTML };
+    const sourceKey = `${scope}:${type}:${key}`;
+    if (values.has(key)) {
+      problems.push(`Duplicate XES attribute key “${key}” on the same ${scope}`);
+      source[`${sourceKey}:duplicate`] = value;
+    } else {
+      values.set(key, attribute);
+      source[sourceKey] = value;
+    }
+  }
+  return { values, source, problems };
+}
+
+function findXesAttribute(attributes: ParsedAttributes, aliases: string[]): XesAttribute | undefined {
+  const indexed = new Map([...attributes.values.entries()].map(([key, value]) => [headerKey(key), value]));
+  for (const alias of aliases) {
+    const match = indexed.get(headerKey(alias));
+    if (match) return match;
+  }
+  return undefined;
+}
+
+async function readXesText(file: File): Promise<string> {
+  if (!file.name.toLowerCase().endsWith('.xes.gz')) return file.text();
+  if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot decompress .xes.gz files. Open the app in an up-to-date browser or use the plain .xes file.');
+  try {
+    const stream = file.stream().pipeThrough(new DecompressionStream('gzip'));
+    return await new Response(stream).text();
+  } catch {
+    throw new Error('The .xes.gz file could not be decompressed. Check that it is a valid gzip-compressed XES file.');
+  }
+}
+
+export async function importIncidentXes(file: File): Promise<HistoricalDataset> {
+  const xmlText = await readXesText(file);
+  const xml = new DOMParser().parseFromString(xmlText, 'application/xml');
+  if (xml.getElementsByTagName('parsererror').length) throw new Error('The XES XML is malformed and could not be parsed.');
+  const log = xml.documentElement;
+  if (!log || localName(log).toLowerCase() !== 'log') throw new Error('The selected XML does not have an XES <log> root element.');
+
+  const traces = elements(log).filter(element => localName(element).toLowerCase() === 'trace');
+  if (!traces.length) throw new Error('The XES log contains no trace elements. Select the BPI Challenge incident log, not a metadata or problem log file.');
+  const events: HistoricalEvent[] = [], rejected: RejectedRow[] = [], outOfOrder: number[] = [];
+  const signatures = new Set<string>(), lastTimeByCase = new Map<string, number>();
+  const mapping: Record<string, string> = {};
+  let sourceEvent = 0, duplicateRows = 0;
+
+  for (const trace of traces) {
+    const traceAttrs = parseXesAttributes(trace, 'trace');
+    const caseAttribute = findXesAttribute(traceAttrs, ['concept:name', 'Case_Id', 'case_id', 'case id']);
+    if (caseAttribute) mapping.case_id ??= `trace:${caseAttribute.type}:${caseAttribute.key}`;
+    const caseId = clean(caseAttribute?.value);
+    const traceEvents = elements(trace).filter(element => localName(element).toLowerCase() === 'event');
+    for (const event of traceEvents) {
+      sourceEvent++;
+      const eventAttrs = parseXesAttributes(event, 'event');
+      const reasons = [...traceAttrs.problems, ...eventAttrs.problems];
+      const timeAttribute = findXesAttribute(eventAttrs, ['time:timestamp', 'Timestamp', 'Change Date+Time', 'event_time']);
+      const activityAttribute = findXesAttribute(eventAttrs, ['Status', 'status', 'concept:name', 'Activity']);
+      const statusAttribute = findXesAttribute(eventAttrs, ['Status', 'status']) ?? activityAttribute;
+      const subStatusAttribute = findXesAttribute(eventAttrs, ['Sub Status', 'Sub-Status', 'sub_status', 'substatus']);
+      const teamAttribute = findXesAttribute(eventAttrs, ['org:group', 'Involved ST', 'support_team']) ?? findXesAttribute(traceAttrs, ['org:group', 'Involved ST', 'support_team']);
+      const impactAttribute = findXesAttribute(eventAttrs, ['impact', 'SR Latest Impact', 'Impact']) ?? findXesAttribute(traceAttrs, ['impact', 'SR Latest Impact', 'Impact']);
+      const productAttribute = findXesAttribute(eventAttrs, ['product', 'Product']) ?? findXesAttribute(traceAttrs, ['product', 'Product']);
+      const organizationAttribute = findXesAttribute(eventAttrs, ['organization involved', 'Involved Org line 3', 'organization']) ?? findXesAttribute(traceAttrs, ['organization involved', 'Involved Org line 3', 'organization']);
+      const ownerCountryAttribute = findXesAttribute(eventAttrs, ['owner country', 'Owner Country']) ?? findXesAttribute(traceAttrs, ['owner country', 'Owner Country']);
+      const organizationCountryAttribute = findXesAttribute(eventAttrs, ['organization country', 'Country']) ?? findXesAttribute(traceAttrs, ['organization country', 'Country']);
+      const functionDivisionAttribute = findXesAttribute(eventAttrs, ['Involved ST Function Div', 'Function Division']) ?? findXesAttribute(traceAttrs, ['Involved ST Function Div', 'Function Division']);
+      if (!mapping.event_time && timeAttribute) mapping.event_time = `event:${timeAttribute.type}:${timeAttribute.key}`;
+      if (!mapping.status && activityAttribute) mapping.status = `event:${activityAttribute.type}:${activityAttribute.key}${activityAttribute.key === 'concept:name' ? ' (activity/status label)' : ''}`;
+      if (!mapping.support_team && teamAttribute) mapping.support_team = `${eventAttrs.values.has(teamAttribute.key) ? 'event' : 'trace'}:${teamAttribute.type}:${teamAttribute.key}`;
+      if (!mapping.impact && impactAttribute) mapping.impact = `${eventAttrs.values.has(impactAttribute.key) ? 'event' : 'trace'}:${impactAttribute.type}:${impactAttribute.key}`;
+      if (!mapping.product && productAttribute) mapping.product = `${eventAttrs.values.has(productAttribute.key) ? 'event' : 'trace'}:${productAttribute.type}:${productAttribute.key}`;
+      if (!mapping.organization && organizationAttribute) mapping.organization = `${eventAttrs.values.has(organizationAttribute.key) ? 'event' : 'trace'}:${organizationAttribute.type}:${organizationAttribute.key}`;
+      if (!caseId) reasons.push('Missing case ID on trace');
+      if (!timeAttribute?.value.trim()) reasons.push('Missing timestamp');
+      const eventTime = parseTimestamp(timeAttribute?.value);
+      if (timeAttribute?.value.trim() && eventTime === null) reasons.push('Invalid timestamp');
+      if (!clean(statusAttribute?.value)) reasons.push('Missing activity/status');
+
+      const source_fields = { ...Object.fromEntries(Object.entries(traceAttrs.source).map(([key, value]) => [`trace.${key.slice('trace:'.length)}`, value])), ...eventAttrs.source };
+      const signature = JSON.stringify({ caseId, source_fields });
+      if (signatures.has(signature)) { duplicateRows++; reasons.push('Exact duplicate XES event'); }
+      else signatures.add(signature);
+      if (caseId && eventTime !== null) {
+        const previous = lastTimeByCase.get(caseId);
+        if (previous !== undefined && eventTime < previous) outOfOrder.push(sourceEvent);
+        lastTimeByCase.set(caseId, Math.max(previous ?? eventTime, eventTime));
+      }
+      if (reasons.length) { rejected.push({ source_row: sourceEvent, reasons, source_fields }); continue; }
+      events.push({
+        case_id: caseId!, event_time: eventTime!, status: clean(statusAttribute?.value), sub_status: clean(subStatusAttribute?.value),
+        support_team: clean(teamAttribute?.value), impact: clean(impactAttribute?.value), product: clean(productAttribute?.value),
+        organization: clean(organizationAttribute?.value), owner_country: clean(ownerCountryAttribute?.value),
+        organization_country: clean(organizationCountryAttribute?.value), function_division: clean(functionDivisionAttribute?.value),
+        source_row: sourceEvent, source_fields,
+      });
+    }
+  }
+  if (!sourceEvent) throw new Error('The XES log has traces but no event elements.');
+  events.sort((a, b) => a.case_id.localeCompare(b.case_id) || a.event_time - b.event_time || a.source_row - b.source_row);
+  return { file_name: file.name, source_format: 'XES', source_delivery: 'uploaded', events, rejected, out_of_order_rows: outOfOrder, duplicate_rows: duplicateRows, blank_rows: 0, row_count: sourceEvent, mapping };
+}
+
+export async function importHistoricalFile(file: File): Promise<HistoricalDataset> {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.csv')) return importIncidentCsv(file);
+  if (name.endsWith('.xes') || name.endsWith('.xes.gz')) return importIncidentXes(file);
+  throw new Error('Choose an incident CSV, plain XES (.xes), or gzip-compressed XES (.xes.gz) file. ZIP and spreadsheet files are not supported.');
 }
 
 export type AnalysisFilter = Record<string, string>;

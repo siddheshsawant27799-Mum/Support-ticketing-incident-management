@@ -6,7 +6,7 @@ Business analysis portfolio case study based on the BPI Challenge 2013 Volvo IT 
 
 The source is the [BPI Challenge 2013 dataset page](https://ais.win.tue.nl/bpi/2013/challenge.html). The challenge page describes an event log from Volvo IT Belgium's VINST incident and problem management system and lists process owner questions on push-to-front escalation, team ping-pong, “wait user” use, and organisational process differences. The supporting [VINST dataset description](https://ais.win.tue.nl/bpi/2013/vinst_data_set.pdf) describes first, second and third line responsibilities and priority as a function of impact and urgency.
 
-Dataset DOI (incidents): [10.4121/500573e6-accc-4b0c-9576-aa5468b10cee](https://doi.org/10.4121/500573e6-accc-4b0c-9576-aa5468b10cee). The original source file is not bundled here. Obtain it from the official challenge page before running the SQL; no findings are presented as measured until the file has been profiled and loaded.
+Dataset DOI (incidents): [10.4121/500573e6-accc-4b0c-9576-aa5468b10cee](https://doi.org/10.4121/500573e6-accc-4b0c-9576-aa5468b10cee). The original source XES is not bundled. A minimized, privacy-conscious event extract generated from the supplied file is included for the deployed historical view; measured results and validation are documented below and in `data/README.md`.
 
 SLA thresholds in `requirements.md` are **proposed prototype assumptions**, not Volvo policy and not evidence of historical SLA compliance. The event log captures status transitions; response-time targets and customer-facing first response may not be observable in it.
 
@@ -32,9 +32,9 @@ SLA thresholds in `requirements.md` are **proposed prototype assumptions**, not 
 
 ## Local prototype
 
-This repository now includes a working React + TypeScript + Vite incident operations demo. It uses **synthetic tickets only** and does not bundle or download the BPI Challenge dataset. The dashboard calculations are based only on the ticket records stored in the browser. They are not measured findings about Volvo IT or VINST.
+This repository includes a working React + TypeScript + Vite incident operations demo. The live ticket workflow and its calculations use **synthetic tickets only**; they are not measurements about Volvo IT or VINST. The historical view is a separate analysis of a minimized extract from the supplied BPI Challenge XES file.
 
-The application also includes a separate **Historical process analysis** view. It remains empty until a user locally selects the official incident source CSV. It does not convert historical event rows into live tickets or mix them into synthetic queue metrics.
+The application also includes a separate **Historical process analysis** view, preloaded from the reviewed extract. It does not convert historical event rows into live tickets or mix them into synthetic queue metrics.
 
 ### Run locally
 
@@ -57,22 +57,29 @@ Changes made in the demo are saved in this browser's local storage. Use the brow
 
 ### Historical event-log import and analysis
 
-The official BPI Challenge 2013 incident dataset is not in this repository. Obtain it from the [BPI Challenge source page](https://ais.win.tue.nl/bpi/2013/challenge.html) or [4TU.ResearchData DOI 10.4121/500573e6-accc-4b0c-9576-aa5468b10cee](https://doi.org/10.4121/500573e6-accc-4b0c-9576-aa5468b10cee); place the original source CSV under `data/source/` (Git-ignored), then open **Historical process analysis** and select the CSV. No automatic download occurs. CSV is supported; XES, ZIP, and spreadsheet inputs are not.
+The **Historical process analysis** view now opens on a reviewed extract built from the user-supplied `bpi_challenge_2013_incidents.xes`. It is separate from the synthetic ticket queue. The deployed extract is minimized for public display: source case IDs are replaced with stable `CASE-00001` labels and `org:resource` is omitted. The original XES is not stored in this repository. Select the source CSV, `.xes`, or `.xes.gz` in the view to run the full validation importer locally; its accepted and rejected source attributes remain available in the browser session.
 
-The importer maps documented VINST headers such as `SR Number`, `Change Date+Time`, `Status`, `Sub Status`, `Involved ST`, `SR Latest Impact`, `Product`, and `Involved Org line 3`. This mapping is marked unverified until a real file is supplied. It preserves source fields, rejects and exposes invalid rows, detects exact duplicate rows, flags source-order issues, and sorts valid events by case and timestamp. Rejected rows can be downloaded with their source values and issue reasons. See [`data/README.md`](data/README.md) for the full mapping, format, validation, and timestamp assumptions.
+The actual XES fields were inspected. The file has trace `concept:name` (`string`); event `time:timestamp` (`date`), `concept:name`, `org:group`, `impact`, `product`, `organization involved`, `organization country`, `resource country`, `org:resource`, `org:role`, and `lifecycle:transition` (`string`). In the imported model, trace `concept:name` maps to case ID; event `time:timestamp` to event time; event `concept:name` to observed activity/status; `org:group` to support team; and `impact`, `product`, and `organization involved` map when present. Additional fields from a local source-file import are retained in `source_fields`. See [`data/README.md`](data/README.md) for exact mapping and extract handling.
 
-Historical metrics are calculated only from accepted rows in the selected file:
+#### Measured from the supplied XES
 
-- **Cases:** distinct case IDs represented among accepted events.
-- **Accepted events:** valid, nonduplicate rows with a case ID and timestamp.
-- **Case duration:** median and p90 raw elapsed time from first to last observed event, among cases with at least two accepted events; reported in hours or days.
-- **Status transitions:** changed consecutive status values and their event/case counts.
-- **Team changes:** changed consecutive team values. This is a team-transition proxy, not a confirmed handoff. Repeat visits mean a case returns to a team seen earlier.
-- **Status intervals:** raw elapsed time from an event to the next event in its case, grouped by the current sub-status (or status when no sub-status exists). The final event in a case is excluded.
+- **7,554 cases; 65,533 events.** All 65,533 events were accepted by the snapshot validation; missing case IDs, missing or invalid timestamps, missing activity/status, exact duplicate events, and source-order violations each counted 0.
+- **Observed range:** 2010-03-31 14:59:42 UTC through 2012-05-22 23:22:25 UTC.
+- **Case duration:** median 181.2 hours (7.5 days) and p90 541.4 hours (22.6 days), across 7,553 cases with at least two accepted events. This is raw elapsed time from first to last recorded event.
+- **Observed activity/status values:** Accepted (40,117 events), Completed (13,867), Queued (11,544), Unmatched (5).
+- **Team transitions:** 9,454 consecutive changes in `org:group`; 1,258 cases revisited a previously seen team. These are event-log sequence measures, not confirmed handoffs.
 
-Filters select cases containing an event with the chosen source values; all events in those cases remain in the timeline calculations. The UI shows the accepted event date range and metric denominators. Timestamp values without an explicit timezone are parsed as UTC for stable display; this is a technical assumption. All duration measures are raw elapsed time between recorded events, never business-hours SLA compliance or first-response time. The source file's authenticity is not verified by the browser app. Imported data is held in memory for the current tab and must be reselected after refresh.
+The dashboard also shows changed status pairs and raw time from each event to its next recorded event grouped by the current activity/status. Event elapsed time is not first-response time, business-hours duration, contractual SLA attainment, or a comparison against Volvo policy. Denominators and metric definitions are shown beside each measure. These results describe this supplied event log only.
 
-Dataset attribution: Steeman, W. (2013), BPI Challenge 2013 / Volvo IT Belgium VINST incident management log, DOI [10.4121/500573e6-accc-4b0c-9576-aa5468b10cee](https://doi.org/10.4121/500573e6-accc-4b0c-9576-aa5468b10cee). Field background: [VINST dataset description](https://ais.win.tue.nl/bpi/2013/vinst_data_set.pdf). The source data is absent from this workspace, so **no historical metrics or findings have been measured here**.
+#### Rebuild the published extract
+
+Keep the original file out of Git. To regenerate the minimized public snapshot after replacing or verifying the local source:
+
+`python scripts/build_historical_snapshot.py \
+  "path/to/bpi_challenge_2013_incidents.xes" \
+  public/data/historical-volvo.json.gz`
+
+The script validates the full XES before output. It refuses to publish a partial snapshot, replaces trace IDs, omits `org:resource`, and writes a gzip-compressed normalized event extract. See [`data/README.md`](data/README.md) for provenance and privacy boundaries.
 
 ### Limitations and evidence boundaries
 
@@ -86,6 +93,6 @@ Seed records and any tickets created in the app are synthetic. They do not repre
 4. Move it to **Waiting for requester** and provide a question and follow-up date; then resume work.
 5. Resolve the ticket with a code and restoration summary, then reopen it to see that history is preserved.
 6. Create a ticket and change impact/urgency to see the prototype priority matrix update.
-7. Open **Historical process analysis**. With no source file, review the expected schema; after placing the official CSV in `data/source/`, select it, review validation counts, then inspect date range, case durations, status transitions, team changes, and elapsed status intervals independently from synthetic tickets.
+7. Open **Historical process analysis**. Review the preloaded historical extract, validation counts, date range, case durations, status transitions, team changes, and elapsed status intervals independently from synthetic tickets. Select a local CSV/XES file to replace the reviewed extract for the current browser session.
 
 For the real event-log import boundary and field mapping, see [`data/README.md`](data/README.md).

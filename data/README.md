@@ -1,48 +1,62 @@
 # Historical incident event-log import
 
-## Dataset status in this workspace
+## Supplied source and published extract
 
-No incident source file is currently present here. The importer is built against the documented original CSV field names and remains **unverified against a locally supplied data file**. The application therefore opens with the existing synthetic demo workflow and an empty historical analysis view. No Volvo event-log findings are shown until a file is imported.
+The source file supplied for this project is `bpi_challenge_2013_incidents.xes`, from the BPI Challenge 2013 incident log: [challenge source page](https://ais.win.tue.nl/bpi/2013/challenge.html), [4TU.ResearchData DOI 10.4121/500573e6-accc-4b0c-9576-aa5468b10cee](https://doi.org/10.4121/500573e6-accc-4b0c-9576-aa5468b10cee). The raw XES remains outside the repository and is not redistributed here.
 
-## Obtain and place the file
+A minimized, gzip-compressed normalized extract is served at `public/data/historical-volvo.json.gz` so the deployed historical view opens with calculated data. It has 65,533 accepted event rows and 7,554 stable pseudonymous case labels. Original case identifiers are replaced by `CASE-00001` style labels; `org:resource` is omitted from the published extract. Other original fields are not copied into the extract. When the supplied original XES is selected via the browser importer, its trace/event attributes are preserved in `source_fields` and invalid rows remain in the downloadable report. Imported local files remain in browser memory.
 
-Use the official [BPI Challenge 2013 page](https://ais.win.tue.nl/bpi/2013/challenge.html), which links the incident management log and source CSV files. The incident-log DOI is [10.4121/500573e6-accc-4b0c-9576-aa5468b10cee](https://doi.org/10.4121/500573e6-accc-4b0c-9576-aa5468b10cee). The app does not download or redistribute any dataset.
+To regenerate the minimized extract from a local original file (the command validates the whole file and refuses partial snapshots):
 
-Place the original incident source CSV in `data/source/` (that directory is Git-ignored), then run the app and select the file in **Historical process analysis → Choose incident CSV**. The importer currently supports CSV with comma, semicolon, or tab delimiters, quoted values, and quoted newlines. It does not import XES, ZIP, or spreadsheet files. Use the source CSV, not the problem logs or a merged archive.
+```powershell
+python scripts/build_historical_snapshot.py `
+  "C:\path\to\bpi_challenge_2013_incidents.xes" `
+  public/data/historical-volvo.json.gz
+```
 
-The browser reads the selected file locally. Imported records and analysis remain in memory for the current tab and are cleared on refresh. Re-select the file after refreshing. The file is not uploaded to the app server.
+## Actual XES structure inspected
 
-## Documented CSV fields and mapping
+The source root is `<log>`, with 7,554 `<trace>` elements. Each trace has `concept:name` as a string case identifier. The 65,533 event elements have `time:timestamp` as a `date` attribute and these actual typed attributes:
 
-The published VINST data description shows the following source fields in its incident/process data table. Exact header spelling should still be confirmed against the supplied CSV during import:
+| XES attribute | Type | Occurrence | Historical event model |
+|---|---|---:|---|
+| `concept:name` | string | 65,533 | `status` / observed activity label |
+| `org:group` | string | 65,533 | `support_team` |
+| `impact` | string | 65,533 | `impact` |
+| `product` | string | 65,533 | `product` |
+| `organization involved` | string | 65,533 | `organization` |
+| `organization country` | string | 65,533 | `organization_country` |
+| `resource country` | string | 65,533 | Retained as source field on local import |
+| `org:resource` | string | 65,533 | Retained on local import; omitted from published extract |
+| `org:role` | string | 58,583 | Retained as source field on local import |
+| `lifecycle:transition` | string | 65,533 | Retained as source field on local import |
+| `time:timestamp` | date | 65,533 | `event_time` |
+| trace `concept:name` | string | 7,554 | `case_id` (pseudonymized in published extract) |
 
-| App field | Documented source CSV header | Use |
-|---|---|---|
-| `case_id` | `SR Number` | Required case identifier. |
-| `event_time` | `Change Date+Time` | Required event timestamp. |
-| `status` | `Status` | Observed status after the logged change. |
-| `sub_status` | `Sub Status` | Observed sub-status after the logged change. |
-| `support_team` | `Involved ST` | Team associated with the event. Team changes are a proxy, not proof of a formal handoff. |
-| `impact` | `SR Latest Impact` | Source impact value when populated. |
-| `product` | `Product` | Source product value when populated. |
-| `organization` | `Involved Org line 3` | Source organization value as labeled in the data description. |
-| `organization_country` | `Country` | Preserved source field; not used as a filter by default. |
-| `owner_country` | `Owner Country` | Preserved source field; not used as a filter by default. |
-| `function_division` | `Involved ST Function Div` | Preserved source field; not used as a filter by default. |
+This is the inspected file's actual structure. CSV remains supported with documented headers `SR Number` and `Change Date+Time`. XES aliases are documented in `src/historical.ts`; no fields are inferred from missing attributes.
 
-Any additional input columns are retained verbatim in each event's `source_fields`. Rows rejected from metrics are available through the in-app download with their original fields and validation reasons. Only columns actually found in the header are mapped; optional missing fields remain empty and their charts/filters show an unavailable state.
+## Validation and measured coverage
 
-## Validation and counting rules
+For the supplied file: 65,533 source events; 65,533 accepted; 0 rejected; 0 missing trace IDs; 0 missing timestamps; 0 invalid timestamps; 0 missing activity/status; 0 exact duplicate events; and 0 out-of-order events. Date range is 2010-03-31 14:59:42 UTC to 2012-05-22 23:22:25 UTC. These counts were calculated by parsing the supplied XES. Re-importing the original through the app reports file-level validation.
 
-- Case ID and event timestamp are required. Rows with missing identifiers, missing timestamps, invalid timestamps, duplicate full rows, or mismatched column counts are rejected from analysis and retained in the rejected-row download.
-- Exact duplicates mean all parsed source field values match; later copies are quarantined and counted. Repeated status values alone are not deduplicated.
-- Source order is checked within each case. Valid out-of-order rows are flagged, then sorted by parsed event time and source row before analysis. Equal timestamps retain source-row order.
-- Empty source rows are counted separately as blank rows.
-- Timestamp parsing accepts ISO-like `YYYY-MM-DD HH:mm:ss` or `YYYY-MM-DDTHH:mm:ss` values, optional fractional seconds, and optional explicit timezone offsets. Explicit offsets are preserved. Timezone-naive values are parsed as UTC for consistent display; this is a parsing assumption, not evidence that VINST stored UTC. Other date formats are reported as invalid rather than guessed.
-- The importer requires `SR Number` (or a documented generic case-ID header) and `Change Date+Time` (or a documented generic timestamp header). If required fields are not found, the whole file is rejected with the detected headers shown.
+- Missing case IDs, missing timestamps, and invalid timestamps have distinct validation reasons. Malformed XML is a file-level error. Missing activity/status and malformed duplicate or anonymous attributes are event-level rejection reasons.
+- Exact duplicate events are detected using case and complete trace/event attribute values. Valid out-of-order events are flagged and sorted before analysis.
+- The timestamp parser accepts ISO timestamps with optional fractional seconds and explicit timezone offsets. Timezone-naive timestamps are interpreted as UTC, a technical assumption.
 
-## Analytical boundaries
+## Metric definitions and measured values
 
-The view is a historical event-log analysis, never the live or synthetic ticket queue. The imported file's source identity and integrity are not independently verified by the browser app. Metrics describe accepted records from the selected file only. Raw elapsed durations are between recorded event timestamps; they are not business-hours SLA clocks, response times, contractual SLA attainment, or verified restoration times. A team transition is only a proxy for a handoff. The last event per case has no observed next-event time and is excluded from status-interval duration. No measured findings are available until an actual source file has been loaded and checked.
+- **Cases:** 7,554 distinct trace IDs represented among accepted events.
+- **Events:** 65,533 valid, nonduplicate records with case ID, timestamp, and activity/status.
+- **Case duration:** median 181.2 hours and p90 541.4 hours of raw elapsed time from first to last observed event; denominator 7,553 cases with at least two events.
+- **Activity/status event counts:** Accepted 40,117; Completed 13,867; Queued 11,544; Unmatched 5.
+- **Status transitions:** changed adjacent activity/status labels with event and distinct-case counts.
+- **Team changes:** 9,454 changes between adjacent nonempty `org:group` values; 1,258 cases revisited a previously seen team. A team transition is not proof of a formal handoff.
+- **Elapsed time in observed status:** raw elapsed time from each event to the next event in its trace, grouped by the current activity/status. The final event per case is excluded.
 
-Source field descriptions: [VINST dataset description](https://ais.win.tue.nl/bpi/2013/vinst_data_set.pdf). Challenge and source-file links: [BPI Challenge 2013](https://ais.win.tue.nl/bpi/2013/challenge.html).
+All elapsed measures are wall-clock time between recorded events. They are not first-response times, business-hours clocks, contractual SLA compliance, restoration times, or Volvo policy targets. The synthetic ticket workflow and its prototype SLA assumptions are separate from these historical records.
+
+## Source references
+
+- [BPI Challenge 2013 source page](https://ais.win.tue.nl/bpi/2013/challenge.html)
+- [VINST dataset/process description](https://ais.win.tue.nl/bpi/2013/vinst_data_set.pdf)
+- Incident dataset DOI: [10.4121/500573e6-accc-4b0c-9576-aa5468b10cee](https://doi.org/10.4121/500573e6-accc-4b0c-9576-aa5468b10cee)
