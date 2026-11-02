@@ -27,16 +27,15 @@ export default function HistoricalAnalysis() {
       try {
         const response = await fetch('/data/historical-volvo.json.gz');
         if (!response.ok) throw new Error('The published historical extract is unavailable. You can still select the original CSV or XES file below.');
+        const responseBytes = await response.arrayBuffer();
+        const bytes = new Uint8Array(responseBytes);
+        const isGzip = bytes[0] === 0x1f && bytes[1] === 0x8b;
         let reviewed: HistoricalDataset;
-        if (response.headers.get('content-encoding')?.toLowerCase().includes('gzip')) {
-          // Fetch has already decompressed an HTTP Content-Encoding: gzip response.
-          reviewed = await response.json() as HistoricalDataset;
-        } else {
+        if (isGzip) {
           if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot open the published compressed extract. Use a current browser or select the original XES file below.');
-          const compressed = await response.arrayBuffer();
-          const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
+          const stream = new Blob([responseBytes]).stream().pipeThrough(new DecompressionStream('gzip'));
           reviewed = await new Response(stream).json() as HistoricalDataset;
-        }
+        } else reviewed = JSON.parse(new TextDecoder().decode(responseBytes)) as HistoricalDataset;
         if (active) { setDataset(reviewed); setFilters({}); }
       } catch (error) {
         if (active) setLoadError(error instanceof Error ? error.message : 'The published historical extract could not be read.');
