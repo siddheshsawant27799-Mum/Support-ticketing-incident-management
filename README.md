@@ -6,7 +6,7 @@ Business analysis portfolio case study based on the BPI Challenge 2013 Volvo IT 
 
 The source is the [BPI Challenge 2013 dataset page](https://ais.win.tue.nl/bpi/2013/challenge.html). The challenge page describes an event log from Volvo IT Belgium's VINST incident and problem management system and lists process owner questions on push-to-front escalation, team ping-pong, “wait user” use, and organisational process differences. The supporting [VINST dataset description](https://ais.win.tue.nl/bpi/2013/vinst_data_set.pdf) describes first, second and third line responsibilities and priority as a function of impact and urgency.
 
-Dataset DOI (incidents): [10.4121/500573e6-accc-4b0c-9576-aa5468b10cee](https://doi.org/10.4121/500573e6-accc-4b0c-9576-aa5468b10cee). The original source XES is not bundled. A minimized, privacy-conscious event extract generated from the supplied file is included for the deployed historical view; measured results and validation are documented below and in `data/README.md`.
+Dataset DOI (incidents): [10.4121/500573e6-accc-4b0c-9576-aa5468b10cee](https://doi.org/10.4121/500573e6-accc-4b0c-9576-aa5468b10cee). Neither the source XES nor derived event extracts are committed to this repository. Measured results and validation from the supplied file are documented below and in `data/README.md`.
 
 SLA thresholds in `requirements.md` are **proposed prototype assumptions**, not Volvo policy and not evidence of historical SLA compliance. The event log captures status transitions; response-time targets and customer-facing first response may not be observable in it.
 
@@ -34,7 +34,7 @@ SLA thresholds in `requirements.md` are **proposed prototype assumptions**, not 
 
 This repository includes a working React + TypeScript + Vite incident operations demo. The live ticket workflow and its calculations use **synthetic tickets only**; they are not measurements about Volvo IT or VINST. The historical view is a separate analysis of a minimized extract from the supplied BPI Challenge XES file.
 
-The application also includes a separate **Historical process analysis** view, preloaded from the reviewed extract. It does not convert historical event rows into live tickets or mix them into synthetic queue metrics.
+The application also includes a separate **Historical process analysis** view. A clean repository checkout does not include historical data: select a local CSV, `.xes`, or `.xes.gz` file to populate it. The selected file is processed in the browser session and is not converted into live tickets or mixed into synthetic queue metrics.
 
 ### Run locally
 
@@ -57,7 +57,7 @@ Changes made in the demo are saved in this browser's local storage. Use the brow
 
 ### Historical event-log import and analysis
 
-The **Historical process analysis** view now opens on a reviewed extract built from the user-supplied `bpi_challenge_2013_incidents.xes`. It is separate from the synthetic ticket queue. The deployed extract is minimized for public display: source case IDs are replaced with stable `CASE-00001` labels and `org:resource` is omitted. The original XES is not stored in this repository. Select the source CSV, `.xes`, or `.xes.gz` in the view to run the full validation importer locally; its accepted and rejected source attributes remain available in the browser session.
+The **Historical process analysis** view is separate from the synthetic ticket queue. The repository excludes both the original XES and generated event extracts. In a clean checkout, select the official source CSV, `.xes`, or `.xes.gz` to run the importer. Source attributes and validation results remain in the browser session; the importer does not permanently store the selected file.
 
 The actual XES fields were inspected. The file has trace `concept:name` (`string`); event `time:timestamp` (`date`), `concept:name`, `org:group`, `impact`, `product`, `organization involved`, `organization country`, `resource country`, `org:resource`, `org:role`, and `lifecycle:transition` (`string`). In the imported model, trace `concept:name` maps to case ID; event `time:timestamp` to event time; event `concept:name` to observed activity/status; `org:group` to support team; and `impact`, `product`, and `organization involved` map when present. Additional fields from a local source-file import are retained in `source_fields`. See [`data/README.md`](data/README.md) for exact mapping and extract handling.
 
@@ -71,15 +71,15 @@ The actual XES fields were inspected. The file has trace `concept:name` (`string
 
 The dashboard also shows changed status pairs and raw time from each event to its next recorded event grouped by the current activity/status. Event elapsed time is not first-response time, business-hours duration, contractual SLA attainment, or a comparison against Volvo policy. Denominators and metric definitions are shown beside each measure. These results describe this supplied event log only.
 
-#### Rebuild the published extract
+#### Optional local extract generation
 
-Keep the original file out of Git. To regenerate the minimized public snapshot after replacing or verifying the local source:
+Keep the original file and generated extract out of Git. To generate an ignored local snapshot after placing the source file on your computer:
 
 `python scripts/build_historical_snapshot.py \
   "path/to/bpi_challenge_2013_incidents.xes" \
   public/data/historical-volvo.json.gz`
 
-The script validates the full XES before output. It refuses to publish a partial snapshot, replaces trace IDs, omits `org:resource`, and writes a gzip-compressed normalized event extract. See [`data/README.md`](data/README.md) for provenance and privacy boundaries.
+The script validates the full XES before output. It refuses to write a partial snapshot, replaces trace IDs, omits `org:resource`, and writes a gzip-compressed normalized event extract under the Git-ignored `public/data/` directory. See [`data/README.md`](data/README.md) for provenance and privacy boundaries.
 
 ### Limitations and evidence boundaries
 

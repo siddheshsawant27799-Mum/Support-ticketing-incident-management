@@ -3,3 +3,16 @@ dist/
 *.tsbuildinfo
 .node-runtime/
 data/source/
+# Local source datasets and generated historical event extracts (do not commit)
+*.xes
+*.xes.gz
+data/downloads/
+public/data/
+
+# Local credentials and environment files
+.env
+.env.*
+!.env.example
+.secrets/
+*.pem
+*.key
