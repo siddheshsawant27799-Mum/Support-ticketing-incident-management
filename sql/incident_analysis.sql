@@ -7,6 +7,13 @@
 -- Suggested normalized relation:
 -- incident_events(case_id, event_time, status, sub_status, support_team,
 --                 impact, product, organization, owner_country, event_order)
+-- Expected raw incident CSV headers from the published VINST data description:
+-- SR Number -> case_id; Change Date+Time -> event_time; Status -> status;
+-- Sub Status -> sub_status; Involved ST -> support_team;
+-- SR Latest Impact -> impact; Product -> product;
+-- Involved Org line 3 -> organization; Owner Country -> owner_country.
+-- Confirm exact source headers against the supplied CSV before mapping; the
+-- source file is not bundled and this mapping has not been locally validated.
 
 -- 1. Basic data profile and event coverage
 SELECT COUNT(*) AS event_rows,

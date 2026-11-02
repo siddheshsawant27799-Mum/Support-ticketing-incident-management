@@ -34,6 +34,8 @@ SLA thresholds in `requirements.md` are **proposed prototype assumptions**, not 
 
 This repository now includes a working React + TypeScript + Vite incident operations demo. It uses **synthetic tickets only** and does not bundle or download the BPI Challenge dataset. The dashboard calculations are based only on the ticket records stored in the browser. They are not measured findings about Volvo IT or VINST.
 
+The application also includes a separate **Historical process analysis** view. It remains empty until a user locally selects the official incident source CSV. It does not convert historical event rows into live tickets or mix them into synthetic queue metrics.
+
 ### Run locally
 
 1. Install Node.js (18 or newer).
@@ -53,9 +55,28 @@ Changes made in the demo are saved in this browser's local storage. Use the brow
 - Requester-wait requires a specific question and follow-up date. Resolution requires a resolution summary; resolved tickets can be reopened with history retained.
 - Configurable-in-code sample unassigned thresholds. The SLA indicator uses raw elapsed time since ticket creation and the displayed threshold assumptions. It does not calculate a business-hours clock.
 
+### Historical event-log import and analysis
+
+The official BPI Challenge 2013 incident dataset is not in this repository. Obtain it from the [BPI Challenge source page](https://ais.win.tue.nl/bpi/2013/challenge.html) or [4TU.ResearchData DOI 10.4121/500573e6-accc-4b0c-9576-aa5468b10cee](https://doi.org/10.4121/500573e6-accc-4b0c-9576-aa5468b10cee); place the original source CSV under `data/source/` (Git-ignored), then open **Historical process analysis** and select the CSV. No automatic download occurs. CSV is supported; XES, ZIP, and spreadsheet inputs are not.
+
+The importer maps documented VINST headers such as `SR Number`, `Change Date+Time`, `Status`, `Sub Status`, `Involved ST`, `SR Latest Impact`, `Product`, and `Involved Org line 3`. This mapping is marked unverified until a real file is supplied. It preserves source fields, rejects and exposes invalid rows, detects exact duplicate rows, flags source-order issues, and sorts valid events by case and timestamp. Rejected rows can be downloaded with their source values and issue reasons. See [`data/README.md`](data/README.md) for the full mapping, format, validation, and timestamp assumptions.
+
+Historical metrics are calculated only from accepted rows in the selected file:
+
+- **Cases:** distinct case IDs represented among accepted events.
+- **Accepted events:** valid, nonduplicate rows with a case ID and timestamp.
+- **Case duration:** median and p90 raw elapsed time from first to last observed event, among cases with at least two accepted events; reported in hours or days.
+- **Status transitions:** changed consecutive status values and their event/case counts.
+- **Team changes:** changed consecutive team values. This is a team-transition proxy, not a confirmed handoff. Repeat visits mean a case returns to a team seen earlier.
+- **Status intervals:** raw elapsed time from an event to the next event in its case, grouped by the current sub-status (or status when no sub-status exists). The final event in a case is excluded.
+
+Filters select cases containing an event with the chosen source values; all events in those cases remain in the timeline calculations. The UI shows the accepted event date range and metric denominators. Timestamp values without an explicit timezone are parsed as UTC for stable display; this is a technical assumption. All duration measures are raw elapsed time between recorded events, never business-hours SLA compliance or first-response time. The source file's authenticity is not verified by the browser app. Imported data is held in memory for the current tab and must be reselected after refresh.
+
+Dataset attribution: Steeman, W. (2013), BPI Challenge 2013 / Volvo IT Belgium VINST incident management log, DOI [10.4121/500573e6-accc-4b0c-9576-aa5468b10cee](https://doi.org/10.4121/500573e6-accc-4b0c-9576-aa5468b10cee). Field background: [VINST dataset description](https://ais.win.tue.nl/bpi/2013/vinst_data_set.pdf). The source data is absent from this workspace, so **no historical metrics or findings have been measured here**.
+
 ### Limitations and evidence boundaries
 
-Seed records and any tickets created in the app are synthetic. They do not represent Volvo observations. SLA thresholds are prototype assumptions, not Volvo policy, contractual targets, or verified historical targets. The age and escalation indicators are raw elapsed-time demonstrations; they do not establish business-hours SLA compliance. The app does not ingest first-response timestamps, contractual SLA data, or the real event log. The sample intake acknowledgement is a simulated demo event. This is not a production service: authentication, role permissions, email delivery, service calendars, and server-side storage are out of scope.
+Seed records and any tickets created in the app are synthetic. They do not represent Volvo observations. SLA thresholds are prototype assumptions, not Volvo policy, contractual targets, or verified historical targets. The demo age and escalation indicators are raw elapsed-time demonstrations; they do not establish business-hours SLA compliance. The historical importer does not infer first-response timestamps, contractual SLA data, or business-hours clocks. The sample intake acknowledgement is a simulated demo event. This is not a production service: authentication, role permissions, email delivery, service calendars, and server-side storage are out of scope.
 
 ### Short demo walkthrough
 
@@ -65,5 +86,6 @@ Seed records and any tickets created in the app are synthetic. They do not repre
 4. Move it to **Waiting for requester** and provide a question and follow-up date; then resume work.
 5. Resolve the ticket with a code and restoration summary, then reopen it to see that history is preserved.
 6. Create a ticket and change impact/urgency to see the prototype priority matrix update.
+7. Open **Historical process analysis**. With no source file, review the expected schema; after placing the official CSV in `data/source/`, select it, review validation counts, then inspect date range, case durations, status transitions, team changes, and elapsed status intervals independently from synthetic tickets.
 
 For the real event-log import boundary and field mapping, see [`data/README.md`](data/README.md).
