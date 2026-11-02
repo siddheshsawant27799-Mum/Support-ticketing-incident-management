@@ -36,6 +36,10 @@ This repository includes a working React + TypeScript + Vite incident operations
 
 The application also includes a separate **Historical process analysis** view. A clean repository checkout does not include historical data: select a local CSV, `.xes`, or `.xes.gz` file to populate it. The selected file is processed in the browser session and is not converted into live tickets or mixed into synthetic queue metrics.
 
+### Deployed dashboard
+
+[Open the live Volvo IT Incident Management dashboard](https://volvo-incident-ops-siddhesh.urbanbulb2.chatgpt.site). The hosted ticket workflow uses synthetic demo records; historical process analysis is shown separately.
+
 ### Run locally
 
 1. Install Node.js (18 or newer).
@@ -93,6 +97,6 @@ Seed records and any tickets created in the app are synthetic. They do not repre
 4. Move it to **Waiting for requester** and provide a question and follow-up date; then resume work.
 5. Resolve the ticket with a code and restoration summary, then reopen it to see that history is preserved.
 6. Create a ticket and change impact/urgency to see the prototype priority matrix update.
-7. Open **Historical process analysis**. Review the preloaded historical extract, validation counts, date range, case durations, status transitions, team changes, and elapsed status intervals independently from synthetic tickets. Select a local CSV/XES file to replace the reviewed extract for the current browser session.
+7. Open **Historical process analysis**. If no extract is loaded, select a local CSV/XES file; then review validation counts, date range, case durations, status transitions, team changes, and elapsed status intervals independently from synthetic tickets. Imported files remain in the current browser session.
 
 For the real event-log import boundary and field mapping, see [`data/README.md`](data/README.md).
